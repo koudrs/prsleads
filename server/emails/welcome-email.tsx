@@ -190,16 +190,29 @@ export const WelcomeEmail = ({
               </table>
             </Section>
 
-            {/* CTA */}
-            <Section className="bg-white px-5 pb-6 text-center">
+            {/* CTA - Email */}
+            <Section className="bg-white px-5 pb-4 text-center">
               <Text className="text-slate-500 text-sm m-0 mb-3">
                 ¿Necesitas una cotizacion urgente?
               </Text>
               <Button
                 className="bg-orange-500 text-white text-sm font-semibold py-3 px-6 rounded-md no-underline"
-                href="mailto:coo@prcargo.us"
+                href="mailto:coo@prscargo.us?subject=Consulta%20desde%20evento"
               >
-                Escribenos Ahora
+                ✉️ Escribenos por Email
+              </Button>
+            </Section>
+
+            {/* CTA - WhatsApp */}
+            <Section className="bg-white px-5 pb-6 text-center">
+              <Text className="text-slate-500 text-sm m-0 mb-3">
+                ¿Prefieres WhatsApp? ¡Tambien estamos ahi!
+              </Text>
+              <Button
+                className="bg-green-500 text-white text-sm font-semibold py-3 px-6 rounded-md no-underline"
+                href="https://wa.me/50764225150?text=Hola%2C%20los%20conoci%20en%20el%20evento%20y%20me%20gustaria%20mas%20informacion"
+              >
+                💬 Escribenos por WhatsApp
               </Button>
             </Section>
 
@@ -231,12 +244,30 @@ export const WelcomeEmail = ({
                 Tu socio logistico de confianza 🌎
               </Text>
 
-              <Link
-                href="mailto:coo@prcargo.us"
-                className="text-sky-400 text-sm no-underline"
-              >
-                coo@prcargo.us
-              </Link>
+              <table className="w-full">
+                <tbody>
+                  <tr>
+                    <td className="text-center pb-2">
+                      <Link
+                        href="mailto:coo@prscargo.us"
+                        className="text-sky-400 text-sm no-underline"
+                      >
+                        ✉️ coo@prscargo.us
+                      </Link>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="text-center">
+                      <Link
+                        href="https://wa.me/50764225150"
+                        className="text-green-400 text-sm no-underline"
+                      >
+                        💬 +507 6422-5150
+                      </Link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
 
               <Text className="text-slate-500 text-xs m-0 mt-4">
                 Premium Rush Cargo | Ciudad de Panama, Panama
