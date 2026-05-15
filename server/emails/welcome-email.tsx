@@ -13,6 +13,9 @@ import {
   Text,
 } from "@react-email/components";
 import { render } from "@react-email/render";
+import type {} from "react";
+import React from "react";
+void React;
 
 interface WelcomeEmailProps {
   fullName: string;
