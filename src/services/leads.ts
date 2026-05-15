@@ -31,6 +31,154 @@ export async function getActiveEvents(): Promise<Event[]> {
   }
 }
 
+export async function getAllEvents(): Promise<Event[]> {
+  try {
+    const response = await fetch(`${API_URL}/api/events`)
+    if (!response.ok) throw new Error('Failed to fetch events')
+    return await response.json()
+  } catch (error) {
+    console.error('[Events] Error:', error)
+    return []
+  }
+}
+
+export interface CreateEventData {
+  name: string
+  description: string
+  date: string
+  location: string
+}
+
+export async function createEvent(
+  data: CreateEventData
+): Promise<{ success: boolean; message: string; event?: Event }> {
+  try {
+    const response = await fetch(`${API_URL}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: result.error || 'Error al crear evento',
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Evento creado exitosamente',
+      event: result.event,
+    }
+  } catch (error) {
+    console.error('[Event] Create error:', error)
+    return {
+      success: false,
+      message: 'Error de conexión. Intenta nuevamente.',
+    }
+  }
+}
+
+export async function updateEvent(
+  id: string,
+  data: Partial<CreateEventData> & { isActive?: boolean }
+): Promise<{ success: boolean; message: string; event?: Event }> {
+  try {
+    const response = await fetch(`${API_URL}/api/events/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: result.error || 'Error al actualizar evento',
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Evento actualizado exitosamente',
+      event: result.event,
+    }
+  } catch (error) {
+    console.error('[Event] Update error:', error)
+    return {
+      success: false,
+      message: 'Error de conexión. Intenta nuevamente.',
+    }
+  }
+}
+
+export async function deleteEvent(
+  id: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/events/${id}`, {
+      method: 'DELETE',
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: result.error || 'Error al eliminar evento',
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Evento eliminado exitosamente',
+    }
+  } catch (error) {
+    console.error('[Event] Delete error:', error)
+    return {
+      success: false,
+      message: 'Error de conexión. Intenta nuevamente.',
+    }
+  }
+}
+
+export async function sendTestEmail(
+  email: string,
+  eventId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await fetch(`${API_URL}/api/test-email`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, eventId }),
+    })
+
+    const result = await response.json()
+
+    if (!response.ok) {
+      return {
+        success: false,
+        message: result.error || 'Error al enviar email de prueba',
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Email de prueba enviado exitosamente',
+    }
+  } catch (error) {
+    console.error('[Email] Test error:', error)
+    return {
+      success: false,
+      message: 'Error de conexión. Intenta nuevamente.',
+    }
+  }
+}
+
 export async function getEvent(eventId: string): Promise<Event | null> {
   const events = await getActiveEvents()
   return events.find((e) => e.id === eventId) ?? null

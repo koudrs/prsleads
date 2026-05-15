@@ -1,9 +1,18 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { getAllLeads, getLeadStats, getLeadCardImage } from '@/services/leads'
-import type { LeadsQueryParams } from '@/services/leads'
-import type { Lead } from '@/types/lead'
+import {
+  getAllLeads,
+  getLeadStats,
+  getLeadCardImage,
+  getAllEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  sendTestEmail,
+} from '@/services/leads'
+import type { LeadsQueryParams, CreateEventData } from '@/services/leads'
+import type { Lead, Event } from '@/types/lead'
 import { COMPANY_TYPES } from '@/types/lead'
 import {
   Table,
@@ -16,6 +25,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -38,6 +48,13 @@ import {
   ChevronsLeft,
   ChevronsRight,
   X,
+  Calendar,
+  MapPin,
+  Plus,
+  Trash,
+  Edit,
+  Mail,
+  Send,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
@@ -96,6 +113,26 @@ export function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<string>(initialStatus || '')
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null)
 
+  // Events state
+  const [events, setEvents] = useState<Event[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventDialogOpen, setEventDialogOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null)
+  const [eventForm, setEventForm] = useState<CreateEventData>({
+    name: '',
+    description: '',
+    date: '',
+    location: '',
+  })
+  const [eventSaving, setEventSaving] = useState(false)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+
+  // Email test state
+  const [testEmail, setTestEmail] = useState('')
+  const [testEventId, setTestEventId] = useState('')
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [alertMessage, setAlertMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   // Update URL when filters change
   const updateUrl = useCallback(
     (page: number, search: string, status: string) => {
@@ -152,9 +189,10 @@ export function AdminPage() {
     setSearchTimeout(timeout)
   }
 
-  const handleStatusChange = (value: string) => {
-    setStatusFilter(value)
-    loadData(1, searchQuery, value)
+  const handleStatusChange = (value: string | null) => {
+    const val = value || ''
+    setStatusFilter(val)
+    loadData(1, searchQuery, val)
   }
 
   const handlePageChange = (newPage: number) => {
@@ -168,6 +206,114 @@ export function AdminPage() {
     setStatusFilter('')
     loadData(1, '', '')
   }
+
+  // Events functions
+  const loadEvents = useCallback(async () => {
+    setEventsLoading(true)
+    const eventsData = await getAllEvents()
+    setEvents(eventsData)
+    setEventsLoading(false)
+  }, [])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
+
+  const openNewEventDialog = () => {
+    setEditingEvent(null)
+    setEventForm({ name: '', description: '', date: '', location: '' })
+    setEventDialogOpen(true)
+  }
+
+  const openEditEventDialog = (event: Event) => {
+    setEditingEvent(event)
+    setEventForm({
+      name: event.name,
+      description: event.description,
+      date: event.date,
+      location: event.location,
+    })
+    setEventDialogOpen(true)
+  }
+
+  const closeEventDialog = () => {
+    setEventDialogOpen(false)
+    setEditingEvent(null)
+    setEventForm({ name: '', description: '', date: '', location: '' })
+  }
+
+  const handleSaveEvent = async () => {
+    if (!eventForm.name || !eventForm.date || !eventForm.location) {
+      setAlertMessage({ type: 'error', text: 'Completa todos los campos requeridos' })
+      return
+    }
+
+    setEventSaving(true)
+    let result
+
+    if (editingEvent) {
+      result = await updateEvent(editingEvent.id, eventForm)
+    } else {
+      result = await createEvent(eventForm)
+    }
+
+    setEventSaving(false)
+
+    if (result.success) {
+      setAlertMessage({ type: 'success', text: result.message })
+      closeEventDialog()
+      loadEvents()
+    } else {
+      setAlertMessage({ type: 'error', text: result.message })
+    }
+  }
+
+  const handleToggleEventStatus = async (event: Event) => {
+    const result = await updateEvent(event.id, { isActive: !event.isActive })
+    if (result.success) {
+      loadEvents()
+    } else {
+      setAlertMessage({ type: 'error', text: result.message })
+    }
+  }
+
+  const handleDeleteEvent = async (id: string) => {
+    const result = await deleteEvent(id)
+    if (result.success) {
+      setAlertMessage({ type: 'success', text: result.message })
+      setDeleteConfirmId(null)
+      loadEvents()
+    } else {
+      setAlertMessage({ type: 'error', text: result.message })
+    }
+  }
+
+  // Email test functions
+  const handleSendTestEmail = async () => {
+    if (!testEmail || !testEventId) {
+      setAlertMessage({ type: 'error', text: 'Ingresa un email y selecciona un evento' })
+      return
+    }
+
+    setSendingEmail(true)
+    const result = await sendTestEmail(testEmail, testEventId)
+    setSendingEmail(false)
+
+    if (result.success) {
+      setAlertMessage({ type: 'success', text: result.message })
+      setTestEmail('')
+    } else {
+      setAlertMessage({ type: 'error', text: result.message })
+    }
+  }
+
+  // Clear alert after 5 seconds
+  useEffect(() => {
+    if (alertMessage) {
+      const timer = setTimeout(() => setAlertMessage(null), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [alertMessage])
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('es-PA', {
@@ -213,7 +359,7 @@ export function AdminPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">PRS Leads</h1>
+              <h1 className="text-2xl font-bold text-foreground">Leads</h1>
               <p className="text-muted-foreground text-sm">
                 Clientes captados en stand
               </p>
@@ -309,6 +455,201 @@ export function AdminPage() {
               </div>
             </div>
           </motion.div>
+        </div>
+      </motion.div>
+
+      {/* Alert Message */}
+      {alertMessage && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          className="max-w-6xl mx-auto mb-4"
+        >
+          <div
+            className={`p-4 rounded-xl border ${
+              alertMessage.type === 'success'
+                ? 'bg-green-50 border-green-200 text-green-800'
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span>{alertMessage.text}</span>
+              <button onClick={() => setAlertMessage(null)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Events Management & Email Test Section */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.42 }}
+        className="max-w-6xl mx-auto mb-6"
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Events Management */}
+          <div className="bg-card border border-border rounded-xl shadow-sm">
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                <h2 className="font-semibold text-foreground">Gestion de Eventos</h2>
+              </div>
+              <Button size="sm" onClick={openNewEventDialog}>
+                <Plus className="h-4 w-4 mr-1" />
+                Nuevo Evento
+              </Button>
+            </div>
+            <div className="p-4">
+              {eventsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : events.length === 0 ? (
+                <div className="text-center py-8">
+                  <Calendar className="h-10 w-10 text-muted-foreground/50 mx-auto mb-2" />
+                  <p className="text-muted-foreground text-sm">No hay eventos registrados</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {events.map((event) => (
+                    <div
+                      key={event.id}
+                      className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground truncate">
+                            {event.name}
+                          </span>
+                          <Badge variant={event.isActive ? 'default' : 'secondary'}>
+                            {event.isActive ? 'Activo' : 'Inactivo'}
+                          </Badge>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {event.date}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3 w-3" />
+                            {event.location}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => handleToggleEventStatus(event)}
+                          title={event.isActive ? 'Desactivar' : 'Activar'}
+                        >
+                          {event.isActive ? (
+                            <X className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <CheckCircle className="h-4 w-4 text-green-600" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                          onClick={() => openEditEventDialog(event)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        {deleteConfirmId === event.id ? (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              className="h-8 px-2 text-xs"
+                              onClick={() => handleDeleteEvent(event.id)}
+                            >
+                              Eliminar
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 px-2 text-xs"
+                              onClick={() => setDeleteConfirmId(null)}
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            onClick={() => setDeleteConfirmId(event.id)}
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Email Test */}
+          <div className="bg-card border border-border rounded-xl shadow-sm">
+            <div className="flex items-center gap-2 p-4 border-b border-border">
+              <Mail className="h-5 w-5 text-primary" />
+              <h2 className="font-semibold text-foreground">Probar Email</h2>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <Label htmlFor="test-email" className="text-sm font-medium text-foreground">
+                  Email de prueba
+                </Label>
+                <Input
+                  id="test-email"
+                  type="email"
+                  placeholder="correo@ejemplo.com"
+                  value={testEmail}
+                  onChange={(e) => setTestEmail(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="test-event" className="text-sm font-medium text-foreground">
+                  Evento
+                </Label>
+                <Select value={testEventId} onValueChange={(v) => setTestEventId(v || '')}>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Selecciona un evento" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {events.map((event) => (
+                      <SelectItem key={event.id} value={event.id}>
+                        {event.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                onClick={handleSendTestEmail}
+                disabled={sendingEmail || !testEmail || !testEventId}
+                className="w-full"
+              >
+                {sendingEmail ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4 mr-2" />
+                )}
+                Enviar Prueba
+              </Button>
+            </div>
+          </div>
         </div>
       </motion.div>
 
@@ -568,17 +909,98 @@ export function AdminPage() {
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Tarjeta de presentación</DialogTitle>
+            <DialogTitle>Tarjeta de presentacion</DialogTitle>
             <DialogCloseButton />
           </DialogHeader>
           <div className="p-4">
             {previewImage && (
               <img
                 src={previewImage}
-                alt="Tarjeta de presentación"
+                alt="Tarjeta de presentacion"
                 className="w-full h-auto rounded-lg"
               />
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Event Create/Edit Dialog */}
+      <Dialog open={eventDialogOpen} onOpenChange={setEventDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingEvent ? 'Editar Evento' : 'Nuevo Evento'}
+            </DialogTitle>
+            <DialogCloseButton />
+          </DialogHeader>
+          <div className="p-4 space-y-4">
+            <div>
+              <Label htmlFor="event-name" className="text-sm font-medium text-foreground">
+                Nombre del evento *
+              </Label>
+              <Input
+                id="event-name"
+                placeholder="Ej: Tech Summit 2026"
+                value={eventForm.name}
+                onChange={(e) => setEventForm({ ...eventForm, name: e.target.value })}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="event-description" className="text-sm font-medium text-foreground">
+                Descripcion
+              </Label>
+              <Input
+                id="event-description"
+                placeholder="Breve descripcion del evento"
+                value={eventForm.description}
+                onChange={(e) => setEventForm({ ...eventForm, description: e.target.value })}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="event-date" className="text-sm font-medium text-foreground">
+                Fecha *
+              </Label>
+              <Input
+                id="event-date"
+                type="date"
+                value={eventForm.date}
+                onChange={(e) => setEventForm({ ...eventForm, date: e.target.value })}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="event-location" className="text-sm font-medium text-foreground">
+                Ubicacion *
+              </Label>
+              <Input
+                id="event-location"
+                placeholder="Ej: Ciudad de Panama"
+                value={eventForm.location}
+                onChange={(e) => setEventForm({ ...eventForm, location: e.target.value })}
+                className="mt-1"
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={closeEventDialog}
+                className="flex-1"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSaveEvent}
+                disabled={eventSaving || !eventForm.name || !eventForm.date || !eventForm.location}
+                className="flex-1"
+              >
+                {eventSaving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                {editingEvent ? 'Guardar' : 'Crear'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

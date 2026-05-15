@@ -8,6 +8,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import sharp from 'sharp'
 import dotenv from 'dotenv'
+import { renderWelcomeEmail } from './emails/welcome-email.js'
 
 dotenv.config()
 
@@ -31,6 +32,7 @@ const r2Client = new S3Client({
 // Database connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/prs_campaign',
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 })
 
 // Test DB connection
@@ -64,6 +66,113 @@ app.get('/api/events', async (_, res) => {
   } catch (err) {
     console.error('[Events] Error:', err)
     res.status(500).json({ error: 'Failed to fetch events' })
+  }
+})
+
+interface EventRequest {
+  name: string
+  description?: string
+  date?: string
+  location?: string
+}
+
+app.post('/api/events', async (req, res) => {
+  const { name, description, date, location } = req.body as EventRequest
+
+  if (!name) {
+    return res.status(400).json({ error: 'Event name is required' })
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO events (name, description, date, location, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING id, name, description, date, location, is_active`,
+      [name, description || null, date || null, location || null]
+    )
+
+    const row = result.rows[0]
+    const event = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      date: row.date,
+      location: row.location,
+      isActive: row.is_active,
+    }
+
+    console.log('[Events] Created:', event.id)
+    res.status(201).json({ success: true, event })
+  } catch (err) {
+    console.error('[Events] Create error:', err)
+    res.status(500).json({ error: 'Failed to create event' })
+  }
+})
+
+app.put('/api/events/:id', async (req, res) => {
+  const { id } = req.params
+  const { name, description, date, location } = req.body as EventRequest
+
+  if (!name) {
+    return res.status(400).json({ error: 'Event name is required' })
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE events
+       SET name = $1, description = $2, date = $3, location = $4
+       WHERE id = $5 AND is_active = true
+       RETURNING id, name, description, date, location, is_active`,
+      [name, description || null, date || null, location || null, id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Event not found' })
+    }
+
+    const row = result.rows[0]
+    const event = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      date: row.date,
+      location: row.location,
+      isActive: row.is_active,
+    }
+
+    console.log('[Events] Updated:', event.id)
+    res.json({ success: true, event })
+  } catch (err) {
+    console.error('[Events] Update error:', err)
+    res.status(500).json({ error: 'Failed to update event' })
+  }
+})
+
+app.delete('/api/events/:id', async (req, res) => {
+  const { id } = req.params
+
+  try {
+    // Check if event has leads associated
+    const leadsCheck = await pool.query('SELECT COUNT(*) FROM leads WHERE event_id = $1', [id])
+    const leadsCount = parseInt(leadsCheck.rows[0].count)
+
+    if (leadsCount > 0) {
+      return res.status(400).json({
+        error: `No se puede eliminar: hay ${leadsCount} lead(s) asociados a este evento`
+      })
+    }
+
+    const result = await pool.query('DELETE FROM events WHERE id = $1 RETURNING id', [id])
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Event not found' })
+    }
+
+    console.log('[Events] Deleted:', id)
+    res.json({ success: true, id })
+  } catch (err) {
+    console.error('[Events] Delete error:', err)
+    res.status(500).json({ error: 'Failed to delete event' })
   }
 })
 
@@ -139,12 +248,18 @@ app.post('/api/leads', async (req, res) => {
       return res.status(409).json({ error: 'Ya estás registrado en este evento' })
     }
 
-    // Get event name for email
-    const eventResult = await pool.query('SELECT name FROM events WHERE id = $1', [eventId])
+    // Get event details for email
+    const eventResult = await pool.query(
+      'SELECT name, date, location, description FROM events WHERE id = $1',
+      [eventId]
+    )
     if (eventResult.rows.length === 0) {
       return res.status(404).json({ error: 'Evento no encontrado' })
     }
-    const eventName = eventResult.rows[0].name
+    const eventData = eventResult.rows[0]
+    const eventName = eventData.name
+    const eventLocation = eventData.location
+    const eventDescription = eventData.description
 
     // Insert lead
     const result = await pool.query(
@@ -181,11 +296,25 @@ app.post('/api/leads', async (req, res) => {
 
     // Send confirmation email
     try {
+      const registrationDate = new Date().toLocaleDateString('es-PA', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+      })
+      const emailHtml = await renderWelcomeEmail({
+        fullName,
+        eventName,
+        registrationDate,
+        eventLocation: eventLocation || 'Ciudad de Panama',
+        eventDescription: eventDescription || 'Gracias por visitarnos en nuestro stand.',
+      })
+
       const { data, error } = await resend.emails.send({
-        from: 'PRS Delivery <noreply@koudrs.com>',
+        from: 'Premium Rush Cargo <noreply@koudrs.com>',
         to: [email],
-        subject: `¡Gracias por visitarnos! - ${eventName}`,
-        html: generateEmailHtml(fullName, eventName),
+        subject: `¡Gracias por visitarnos en ${eventName}! - Premium Rush Cargo`,
+        html: emailHtml,
       })
 
       if (!error && data?.id) {
@@ -467,6 +596,68 @@ Responde SOLO con el JSON, sin explicaciones.`,
 })
 
 // ============================================================================
+// TEST EMAIL ENDPOINT
+// ============================================================================
+
+interface TestEmailRequest {
+  email: string
+  eventId: string
+}
+
+app.post('/api/test-email', async (req, res) => {
+  const { email, eventId } = req.body as TestEmailRequest
+
+  if (!email || !eventId) {
+    return res.status(400).json({ error: 'Email and eventId are required' })
+  }
+
+  try {
+    // Get event details
+    const eventResult = await pool.query(
+      'SELECT name, date, location, description FROM events WHERE id = $1',
+      [eventId]
+    )
+
+    if (eventResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Event not found' })
+    }
+
+    const eventData = eventResult.rows[0]
+    const registrationDate = new Date().toLocaleDateString('es-PA', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    })
+    const emailHtml = await renderWelcomeEmail({
+      fullName: 'Usuario de Prueba',
+      eventName: eventData.name,
+      registrationDate,
+      eventLocation: eventData.location || 'Ciudad de Panama',
+      eventDescription: eventData.description || 'Gracias por visitarnos en nuestro stand.',
+    })
+
+    const { data, error } = await resend.emails.send({
+      from: 'Premium Rush Cargo <noreply@koudrs.com>',
+      to: [email],
+      subject: `¡Gracias por visitarnos en ${eventData.name}! - Premium Rush Cargo`,
+      html: emailHtml,
+    })
+
+    if (error) {
+      console.error('[Test Email] Error:', error)
+      return res.status(400).json({ error: error.message })
+    }
+
+    console.log('[Test Email] Sent:', data?.id)
+    return res.json({ success: true, id: data?.id })
+  } catch (err) {
+    console.error('[Test Email] Exception:', err)
+    return res.status(500).json({ error: 'Failed to send test email' })
+  }
+})
+
+// ============================================================================
 // LEGACY EMAIL ENDPOINT (for compatibility)
 // ============================================================================
 
@@ -479,7 +670,7 @@ app.post('/api/send-email', async (req, res) => {
 
   try {
     const { data, error } = await resend.emails.send({
-      from: 'PRS Delivery <noreply@koudrs.com>',
+      from: 'PRS Delivery <campaigns@koudrs.com>',
       to: [email],
       subject: `¡Gracias por visitarnos! - ${eventName}`,
       html: generateEmailHtml(fullName, eventName),
